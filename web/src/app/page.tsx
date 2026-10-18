@@ -32,6 +32,14 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState<number | null>(null);
+  const [conn, setConn] = useState<{ connected: boolean; url?: string; user?: string }>({ connected: false });
+
+  useEffect(() => {
+    const poll = () => api.connect().then(setConn).catch(() => setConn({ connected: false }));
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     setNow(Date.now());
@@ -123,6 +131,7 @@ export default function Home() {
           >+ tenant</button>
         </div>
         <div className="ml-auto flex items-center gap-2 text-xs">
+          <ConnectChip conn={conn} />
           {stats && (
             <span className="text-slate-400">
               session #{stats.session} · {stats.facts.active ?? 0} active · {stats.facts.superseded ?? 0} superseded · {stats.facts.pending ?? 0} pending
@@ -223,6 +232,41 @@ export default function Home() {
 /* ---------------------------------------------------------------- panels */
 
 type Runner = <T>(label: string, fn: () => Promise<T & { trace?: TraceStep[] }>, hl?: (r: T) => string[]) => Promise<(T & { trace?: TraceStep[] }) | undefined>;
+
+function ConnectChip({ conn }: { conn: { connected: boolean; url?: string; user?: string } }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 ${conn.connected ? "bg-emerald-600/20 text-emerald-300" : "bg-white/10 text-slate-300"}`}>
+        <span className={`h-2 w-2 rounded-full ${conn.connected ? "bg-emerald-400" : "bg-slate-500"}`} />
+        ChatGPT {conn.connected ? "connected" : "connect"}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 z-20 w-[420px] rounded-lg border border-white/10 bg-[#11141b] p-3 text-xs shadow-xl">
+          {conn.connected ? (
+            <>
+              <div className="text-slate-300">Paste into ChatGPT → Settings → Plugins → <b>Add custom MCP server</b> (Authentication: <b>None</b>)</div>
+              <div className="mt-2 flex gap-1.5">
+                <code className="flex-1 break-all rounded bg-black/40 px-2 py-1.5 text-emerald-300">{conn.url}</code>
+                <button onClick={() => { navigator.clipboard.writeText(conn.url ?? ""); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                  className="rounded bg-emerald-600/80 px-2 hover:bg-emerald-600">{copied ? "Copied" : "Copy"}</button>
+              </div>
+              <div className="mt-2 text-slate-500">Writes to memory graph <b>mem_{conn.user}</b>. The URL contains a secret token, so don&apos;t share it.</div>
+            </>
+          ) : (
+            <>
+              <div className="text-slate-300">Connect your local memory to ChatGPT with one command:</div>
+              <code className="mt-2 block rounded bg-black/40 px-2 py-1.5 text-sky-300">cd backend &amp;&amp; uv run chronomem-connect</code>
+              <div className="mt-2 text-slate-500">Starts the MCP server over HTTP and a secure tunnel, and prints a secret URL. It appears here once connected.</div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TracePanel({ trace }: { trace: { label: string; steps: TraceStep[] } | null }) {
   if (!trace) return <Empty text="Every memory operation shows the exact Cypher it ran on FalkorDB here." />;

@@ -212,6 +212,26 @@ uv run python tests/mcp_client.py  # MCP server over stdio, like Claude Desktop
 
 ## Plug into your agent
 
+### ChatGPT (one command)
+ChatGPT can't launch local programs, so ChronoMem ships a connector:
+```bash
+cd backend
+uv run python -m chronomem.connect     # or: uv run chronomem-connect
+```
+It starts the MCP server over HTTP, opens a Cloudflare tunnel (needs `cloudflared`), and prints a URL with a secret token, for example `https://xxxx.trycloudflare.com/<secret>/mcp`. Paste it into **ChatGPT, Settings, Plugins, Add custom MCP server** with **Authentication: None**. The dashboard's **ChatGPT** chip shows the live URL with a copy button. Requests without the secret path get a 404.
+
+### Claude Desktop, Cursor, Cortex Code (local stdio)
+
+### ChatGPT (one command)
+ChatGPT can't launch local programs, so ChronoMem ships a connector:
+```bash
+cd backend
+uv run python -m chronomem.connect     # or: uv run chronomem-connect
+```
+It starts the MCP server over HTTP, opens a Cloudflare tunnel (needs `cloudflared`), and prints a URL with a secret token, for example `https://xxxx.trycloudflare.com/<secret>/mcp`. Paste it into **ChatGPT, Settings, Plugins, Add custom MCP server** with **Authentication: None**. The dashboard's **ChatGPT** chip shows the live URL with a copy button. Requests without the secret path get a 404.
+
+### Claude Desktop, Cursor, Cortex Code (local stdio)
+
 **Claude Desktop** (`claude_desktop_config.json`), **Cursor** (`.cursor/mcp.json`) or any MCP client:
 ```json
 {
@@ -249,4 +269,5 @@ Built with help from an AI coding assistant (Snowflake Cortex Code) for scaffold
 ## License
 
 MIT
+
 

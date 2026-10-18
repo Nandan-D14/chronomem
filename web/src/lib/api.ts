@@ -50,6 +50,7 @@ const u = (user: string) => `/api/${encodeURIComponent(user)}`;
 
 export const api = {
   config: () => req<{ chat_enabled: boolean; model: string | null }>("/api/config"),
+  connect: () => req<{ connected: boolean; url?: string; user?: string }>("/api/connect"),
   users: () => req<{ users: string[] }>("/api/users"),
   seed: (s: "personal" | "team") => req<{ user: string }>(`/api/seed/${s}`, { method: "POST" }),
   session: (user: string) => req<{ session: number; trace: TraceStep[] }>(`${u(user)}/session`, { method: "POST" }),

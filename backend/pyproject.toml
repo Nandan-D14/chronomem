@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 chronomem-api = "chronomem.api:run"
 chronomem-mcp = "chronomem.mcp_server:run"
+chronomem-connect = "chronomem.connect:run"
 
 [build-system]
 requires = ["hatchling"]

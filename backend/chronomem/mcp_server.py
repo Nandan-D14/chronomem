@@ -131,6 +131,7 @@ def run():
     if os.getenv("CHRONOMEM_TRANSPORT", "stdio") == "http":
         mcp.settings.host = os.getenv("MCP_HOST", "127.0.0.1")
         mcp.settings.port = int(os.getenv("MCP_PORT", "8765"))
+        mcp.settings.streamable_http_path = os.getenv("MCP_PATH", "/mcp")
         from mcp.server.transport_security import TransportSecuritySettings
         mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
         mcp.run(transport="streamable-http")

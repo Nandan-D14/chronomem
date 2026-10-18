@@ -101,6 +101,12 @@ def seed_demo(scenario: str):
         raise HTTPException(400, str(e))
 
 
+@app.get("/api/connect")
+def connect_status():
+    from .connect import status
+    return status()
+
+
 @app.get("/api/users")
 def users():
     return {"users": db.list_users()}
