@@ -1,4 +1,8 @@
-# ChronoMem — memory that knows *when*, *why*, and *who said so*
+# ChronoMem — memory that knows what to revisit when a belief changes
+
+> **The gap it fills:** when an agent's belief changes (you moved city, ownership changed), memory tools update the fact, but every recommendation and decision built on the old fact silently stays. ChronoMem tracks `(Decision)-[:BASED_ON]->(Fact)` and flags them stale the moment the belief changes.
+
+## Memory that knows *when*, *why*, and *who said so*
 
 > Time-aware, contradiction-detecting graph memory for AI agents, built on **FalkorDB** and shipped as an **MCP plugin** for any agent (Claude Desktop, Cursor, Cortex Code, …).
 
@@ -32,6 +36,7 @@ Today's agent memory (Mem0, Zep, MemGPT/Letta, markdown files) is a bag of facts
 | **What matters most** | `algo.pageRank` over the entity graph = the user's core profile |
 | **Multi-tenant** | One isolated FalkorDB graph per user/team (`mem_<id>`) in a single instance |
 | **Shared team memory** | Many agents write to `mem_team_*`; cross-agent conflicts surface with who-said-what |
+| **Decision dependency tracking** | `record_decision` links a decision to the beliefs it rests on; when one is superseded the graph walk flags every dependent decision as **stale** and asks whether to reaffirm, revise or drop it. |
 | **Traceable** | Every call returns the exact Cypher it ran; the dashboard shows it step by step |
 
 **Remove FalkorDB and nothing works**: storage, conflict detection, history, recall, ranking and tenancy are all graph queries.
@@ -138,6 +143,13 @@ OPTIONAL MATCH (o)-[:SOURCED_FROM]->(mo:Message)
 RETURN n, o, collect(DISTINCT mn.text), collect(DISTINCT mo.text)
 ```
 
+**Stale decisions (truth maintenance): runs inside every supersede**
+```cypher
+MATCH (d:Decision)-[:BASED_ON]->(o:Fact {id:$old}), (n:Fact {id:$new})
+WHERE d.status IN ['active','reaffirmed']
+SET d.status='stale', d.stale_since=$t
+CREATE (d)-[:INVALIDATED_BY {ts:$t}]->(n)
+```n
 **Core profile: graph algorithm as an agent tool**
 ```cypher
 CALL algo.pageRank('Entity', 'RELATED') YIELD node, score
@@ -160,6 +172,9 @@ RETURN node.name, score ORDER BY score DESC LIMIT $lim
 | `why_changed(topic)` | version history with source quotes |
 | `contradictions()` | pending conflicts |
 | `core_profile()` | PageRank: what matters most |
+| `record_decision(decision, based_on[], reason)` | store a recommendation and the facts it depends on |
+| `stale_decisions()` | decisions whose underlying beliefs changed |
+| `resolve_decision(id, reaffirm\|revise\|drop)` | settle a stale decision |
 | `forget(fact_id)` | the user asks to forget something |
 
 The server ships `instructions` telling the host agent when to call each tool.
@@ -214,6 +229,7 @@ The same memory now follows you across every MCP-capable tool, and the dashboard
 ## Demo script
 
 1. **Demo: personal** loads 30 days of Nandan's memory (moved Bengaluru → Mysuru, building ChronoMem…).
+1b. **Decisions (3):** the agent had recommended a gym, a commute and cafes based on *lives in Bengaluru*. After the move to Mysuru, all three are flagged stale: *Still valid / Revise / Drop*.
 2. **Conflicts (1):** *vegetarian* vs *"Had chicken biryani today"*, with both source quotes. Click **Keep new**; the graph draws a `SUPERSEDES` edge.
 3. **History → "lives":** Bengaluru → Mysuru, with dates and quotes.
 4. **Time travel slider** back three weeks: the agent's beliefs as they were then.
@@ -233,3 +249,4 @@ Built with help from an AI coding assistant (Snowflake Cortex Code) for scaffold
 ## License
 
 MIT
+

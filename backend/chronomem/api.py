@@ -47,6 +47,19 @@ class ResolveIn(BaseModel):
     keep: Literal["new", "old", "both"]
 
 
+class DecisionIn(BaseModel):
+    decision: str
+    based_on: list[str]
+    reason: str = ""
+    alternatives: str = ""
+    asserted_by: str = "assistant"
+
+
+class DecisionActionIn(BaseModel):
+    decision_id: str
+    action: Literal["reaffirm", "revise", "drop"]
+
+
 class ChatIn(BaseModel):
     messages: list[dict]
 
@@ -152,6 +165,26 @@ def sweep(user: str):
 @app.get("/api/{user}/graph")
 def snapshot(user: str, as_of: int | None = None):
     return mem(user).snapshot(as_of)
+
+
+@app.post("/api/{user}/decisions")
+def record_decision(user: str, body: DecisionIn):
+    return mem(user).record_decision(body.decision, body.based_on, body.reason, body.alternatives, body.asserted_by)
+
+
+@app.get("/api/{user}/decisions")
+def decisions(user: str):
+    return mem(user).decisions()
+
+
+@app.get("/api/{user}/decisions/stale")
+def stale(user: str):
+    return mem(user).stale_decisions()
+
+
+@app.post("/api/{user}/decisions/resolve")
+def resolve_decision(user: str, body: DecisionActionIn):
+    return mem(user).resolve_decision(body.decision_id, body.action)
 
 
 @app.get("/api/{user}/stats")

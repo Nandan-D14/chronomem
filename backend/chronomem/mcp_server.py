@@ -24,6 +24,9 @@ mcp = FastMCP(
         "resolve. Never silently overwrite.\n"
         "- If the user explicitly says something changed ('I moved to Berlin'), use mode='replace'.\n"
         "- Before answering personal questions call recall. For 'when/why did X change' call why_changed.\n"
+        "- When you recommend or decide something using remembered facts, call record_decision with the fact ids "
+        "it is based on. After a belief changes, or at conversation start, call stale_decisions and ask the user "
+        "whether to revisit each one (then resolve_decision).\n"
         "- When you use a memory, cite its source quote."
     ),
 )
@@ -92,13 +95,47 @@ def core_profile(user_id: str = DEFAULT_USER) -> str:
 
 
 @mcp.tool()
+def record_decision(decision: str, based_on: list[str], reason: str = "", alternatives: str = "",
+                    asserted_by: str = "assistant", user_id: str = DEFAULT_USER) -> str:
+    """Record a decision/recommendation you made and the beliefs it depends on.
+
+    Call this whenever you recommend or decide something using remembered facts.
+    based_on: fact ids from recall/remember (or keys like 'user|lives_in').
+    If any of those beliefs later changes, the decision becomes stale.
+    """
+    return _out(Memory(user_id).record_decision(decision, based_on, reason, alternatives, asserted_by), False)
+
+
+@mcp.tool()
+def stale_decisions(user_id: str = DEFAULT_USER) -> str:
+    """Decisions that rest on beliefs which have since changed. Check this at the start of a
+    conversation and after any belief changes; ask the user whether to revisit them."""
+    return _out(Memory(user_id).stale_decisions(), False)
+
+
+@mcp.tool()
+def resolve_decision(decision_id: str, action: Literal["reaffirm", "revise", "drop"],
+                     user_id: str = DEFAULT_USER) -> str:
+    """After asking the user about a stale decision: reaffirm (still valid), revise (redo it), or drop it."""
+    return _out(Memory(user_id).resolve_decision(decision_id, action), False)
+
+
+@mcp.tool()
 def forget(fact_id: str, user_id: str = DEFAULT_USER) -> str:
     """Forget a fact when the user asks you to."""
     return _out(Memory(user_id).forget(fact_id), False)
 
 
 def run():
-    mcp.run()
+    """stdio by default (Cortex Code, Claude Desktop, Cursor). CHRONOMEM_TRANSPORT=http serves /mcp for ChatGPT."""
+    if os.getenv("CHRONOMEM_TRANSPORT", "stdio") == "http":
+        mcp.settings.host = os.getenv("MCP_HOST", "127.0.0.1")
+        mcp.settings.port = int(os.getenv("MCP_PORT", "8765"))
+        from mcp.server.transport_security import TransportSecuritySettings
+        mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

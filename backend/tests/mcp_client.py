@@ -16,6 +16,8 @@ PARAMS = StdioServerParameters(
 
 
 async def main():
+    from chronomem.db import delete_user
+    delete_user("mcp_test")
     async with stdio_client(PARAMS) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()

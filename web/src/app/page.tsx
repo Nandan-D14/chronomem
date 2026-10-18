@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MemoryGraph, { LEGEND } from "@/components/MemoryGraph";
-import { api, fmt, type Contradiction, type Fact, type GraphNode, type Snapshot, type TraceStep } from "@/lib/api";
+import { api, fmt, type Contradiction, type Fact, type GraphNode, type Snapshot, type StaleDecision, type TraceStep } from "@/lib/api";
 
-type Tab = "trace" | "conflicts" | "history" | "recall" | "profile";
+type Tab = "trace" | "conflicts" | "decisions" | "history" | "recall" | "profile";
 type Msg = { role: "user" | "assistant"; content: string; tools?: string[] };
 
 const KIND_BADGE: Record<string, string> = {
@@ -26,6 +26,7 @@ export default function Home() {
   const [highlight, setHighlight] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [conflicts, setConflicts] = useState<Contradiction[]>([]);
+  const [stale, setStale] = useState<StaleDecision[]>([]);
   const [tab, setTab] = useState<Tab>("trace");
   const [left, setLeft] = useState<"chat" | "playground">("playground");
   const [error, setError] = useState<string | null>(null);
@@ -40,10 +41,11 @@ export default function Home() {
   const refresh = useCallback(
     async (u = user, t = asOf) => {
       try {
-        const [g, s, c] = await Promise.all([api.graph(u, t ?? undefined), api.stats(u), api.contradictions(u)]);
+        const [g, s, c, d] = await Promise.all([api.graph(u, t ?? undefined), api.stats(u), api.contradictions(u), api.staleDecisions(u)]);
         setSnap(g);
         setStats(s);
         setConflicts(c.pending);
+        setStale(d.stale);
         setError(null);
       } catch (e) {
         setError(String((e as Error).message));
@@ -192,10 +194,11 @@ export default function Home() {
         <aside className="flex w-[400px] shrink-0 flex-col border-l border-white/10">
           {selected?.fact && <FactCard f={selected.fact} onForget={() => run("forget", () => api.forget(user, selected.fact!.id)).then(() => setSelected(null))} />}
           <div className="flex border-b border-white/10 text-xs">
-            {(["trace", "conflicts", "history", "recall", "profile"] as Tab[]).map((t) => (
+            {(["trace", "conflicts", "decisions", "history", "recall", "profile"] as Tab[]).map((t) => (
               <button key={t} onClick={() => setTab(t)}
                 className={`flex-1 py-2 capitalize ${tab === t ? "border-b-2 border-emerald-400 text-white" : "text-slate-400"}`}>
                 {t}{t === "conflicts" && conflicts.length ? <span className="ml-1 rounded-full bg-red-500 px-1.5 text-[10px] text-white">{conflicts.length}</span> : null}
+                {t === "decisions" && stale.length ? <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] text-black">{stale.length}</span> : null}
               </button>
             ))}
           </div>
@@ -203,6 +206,9 @@ export default function Home() {
             {tab === "trace" && <TracePanel trace={trace} />}
             {tab === "conflicts" && (
               <Conflicts items={conflicts} onResolve={(id, keep) => run(`resolve: keep ${keep}`, () => api.resolve(user, id, keep), () => ["f:" + id])} />
+            )}
+            {tab === "decisions" && (
+              <Decisions items={stale} onAct={(id, a) => run(`decision: ${a}`, () => api.resolveDecision(user, id, a))} />
             )}
             {tab === "history" && <History user={user} run={run} />}
             {tab === "recall" && <Recall user={user} asOf={asOf} run={run} />}
@@ -285,6 +291,31 @@ function Conflicts({ items, onResolve }: { items: Contradiction[]; onResolve: (i
             <button onClick={() => onResolve(c.fact_id, "new")} className="rounded bg-emerald-600/80 px-2 py-1 hover:bg-emerald-600">Keep new</button>
             <button onClick={() => onResolve(c.fact_id, "old")} className="rounded bg-white/10 px-2 py-1 hover:bg-white/15">Keep old</button>
             <button onClick={() => onResolve(c.fact_id, "both")} className="rounded bg-white/10 px-2 py-1 hover:bg-white/15">Both true</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Decisions({ items, onAct }: { items: StaleDecision[]; onAct: (id: string, a: "reaffirm" | "revise" | "drop") => void }) {
+  if (!items.length)
+    return <Empty text="No stale decisions. When the agent records a decision, ChronoMem tracks which beliefs it rests on and flags it here the moment one changes." />;
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-amber-300">{items.length} decisions rest on beliefs that changed. Revisit?</div>
+      {items.map((d) => (
+        <div key={d.decision_id} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+          <div className="text-sm font-medium">{d.decision}</div>
+          {d.reason && <div className="mt-0.5 text-[11px] italic text-slate-400">why: {d.reason}</div>}
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="rounded bg-black/30 p-2"><div className="text-[10px] uppercase text-slate-500">was based on</div><div className="line-through decoration-red-400/60">{d.was_based_on.join("; ")}</div></div>
+            <div className="rounded bg-black/30 p-2"><div className="text-[10px] uppercase text-slate-500">now believed</div><div className="text-emerald-300">{d.now_believed.join("; ")}</div></div>
+          </div>
+          <div className="mt-2 flex gap-2 text-xs">
+            <button onClick={() => onAct(d.decision_id, "reaffirm")} className="rounded bg-white/10 px-2 py-1 hover:bg-white/15">Still valid</button>
+            <button onClick={() => onAct(d.decision_id, "revise")} className="rounded bg-amber-600/80 px-2 py-1 hover:bg-amber-600">Revise</button>
+            <button onClick={() => onAct(d.decision_id, "drop")} className="rounded bg-white/10 px-2 py-1 hover:bg-white/15">Drop</button>
           </div>
         </div>
       ))}

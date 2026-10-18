@@ -26,6 +26,16 @@ export type Snapshot = { nodes: GraphNode[]; links: GraphLink[]; time_range: [nu
 
 export type Contradiction = { fact_id: string; new: Fact; old: Fact };
 
+export type StaleDecision = {
+  decision_id: string;
+  decision: string;
+  reason: string | null;
+  decided_at: number;
+  stale_since: number | null;
+  was_based_on: string[];
+  now_believed: string[];
+};
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(API + path, {
     ...init,
@@ -65,6 +75,14 @@ export const api = {
       `${u(user)}/why?topic=${encodeURIComponent(topic)}`,
     ),
   contradictions: (user: string) => req<{ pending: Contradiction[] }>(`${u(user)}/contradictions`),
+  staleDecisions: (user: string) => req<{ stale: StaleDecision[]; trace: TraceStep[] }>(`${u(user)}/decisions/stale`),
+  allDecisions: (user: string) =>
+    req<{ decisions: { id: string; text: string; reason: string; status: string; based_on: string[] }[] }>(`${u(user)}/decisions`),
+  resolveDecision: (user: string, decision_id: string, action: "reaffirm" | "revise" | "drop") =>
+    req<{ status: string; trace: TraceStep[] }>(`${u(user)}/decisions/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ decision_id, action }),
+    }),
   profile: (user: string) => req<{ entities: { name: string; score: number }[]; trace: TraceStep[] }>(`${u(user)}/profile`),
   sweep: (user: string) => req<{ archived: number; trace: TraceStep[] }>(`${u(user)}/sweep`, { method: "POST" }),
   forget: (user: string, id: string) => req<{ trace: TraceStep[] }>(`${u(user)}/forget/${id}`, { method: "POST" }),

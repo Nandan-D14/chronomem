@@ -29,6 +29,12 @@ PERSONAL = [
     (0.01, "user", "diet", "eats chicken", "identity", "Had chicken biryani today, loved it!", True, "ask"),
 ]
 
+DECISIONS = [
+    (14, "Recommended Cult.fit gym in Koramangala", "closest gym to where the user lives"),
+    (13, "Planned a daily metro commute to PES University", "user lives in Bengaluru and studies there"),
+    (12, "Suggested veg-friendly cafes near campus (Hosur Rd)", "user is vegetarian and lives in Bengaluru"),
+]
+
 TEAM = [
     # days_ago, subject, predicate, object, kind, source, single_valued, mode, agent
     (14, "billing-service", "owned by", "Priya", "identity", "#eng: Priya owns billing-service", True, "ask", "slack-agent"),
@@ -51,8 +57,11 @@ def seed(scenario: str = "personal") -> dict:
         delete_user(user)
         m = Memory(user)
         for d, s, p, o, k, src, sv, mode in PERSONAL:
+            if d == 10 and p == "lives in":
+                for days, text, why in DECISIONS:
+                    m.record_decision(text, ["user|lives_in", "user|diet"], reason=why, ts=_at(days))
             m.remember(s, p, o, kind=k, source=src, single_valued=sv, mode=mode, ts=_at(d))
-        return {"user": user, "facts": len(PERSONAL)}
+        return {"user": user, "facts": len(PERSONAL), "decisions": len(DECISIONS)}
     if scenario == "team":
         user = "team_acme"
         delete_user(user)

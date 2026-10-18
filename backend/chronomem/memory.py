@@ -232,9 +232,84 @@ class Memory:
             CREATE (n)-[:SUPERSEDES {ts:$t}]->(o)
         """, {"new": new_id, "old": old_id, "t": t})
         self._unlink(trace, old_id)
+        self._q(trace, "flag decisions that depended on the old belief as STALE", """
+            MATCH (d:Decision)-[:BASED_ON]->(o:Fact {id:$old}), (n:Fact {id:$new})
+            WHERE d.status IN ['active','reaffirmed']
+            SET d.status='stale', d.stale_since=$t
+            CREATE (d)-[:INVALIDATED_BY {ts:$t}]->(n)
+        """, {"new": new_id, "old": old_id, "t": t})
         rows = self._q(None, "", "MATCH (f:Fact {id:$id}) RETURN f.subject_n, f.predicate_n, f.object_n", {"id": new_id})
         if rows:
             self._link(trace, *rows[0])
+
+    # ------------------------------------------------------------------ decisions
+    def record_decision(self, decision: str, based_on: list[str], reason: str = "",
+                        alternatives: str = "", asserted_by: str = "assistant", ts: int | None = None) -> dict:
+        """Record a decision/recommendation and the beliefs it depends on.
+
+        based_on: fact ids (from recall/remember) or fact keys like 'user|lives_in'.
+        When any of those beliefs later changes, the decision is flagged stale.
+        """
+        trace = Trace()
+        t = ts or now_ms()
+        sess = self._session(trace, ts=t)
+        did = uuid.uuid4().hex[:12]
+        rows = self._q(trace, "find the beliefs this decision rests on", """
+            MATCH (f:Fact) WHERE f.id IN $refs OR (f.key IN $refs AND f.status = 'active')
+            RETURN f.id, f.subject, f.predicate, f.object
+        """, {"refs": based_on})
+        if not rows:
+            return {"status": "error", "error": "none of based_on matched a fact id or key", "trace": trace.steps}
+        self._q(trace, "create decision + BASED_ON edges", """
+            CREATE (d:Decision {id:$id, text:$text, reason:$reason, alternatives:$alts, status:'active',
+                                created_at:$t, session:$sess, asserted_by:$by})
+            WITH d
+            MATCH (f:Fact) WHERE f.id IN $fids
+            CREATE (d)-[:BASED_ON]->(f)
+        """, {"id": did, "text": decision, "reason": reason, "alts": alternatives, "t": t,
+              "sess": sess, "by": asserted_by, "fids": [r[0] for r in rows]})
+        return {"status": "recorded", "decision_id": did,
+                "based_on": [f"{r[1]} {r[2]} {r[3]}" for r in rows], "trace": trace.steps}
+
+    def stale_decisions(self) -> dict:
+        """Decisions whose underlying beliefs changed since they were made."""
+        trace = Trace()
+        rows = self._q(trace, "decisions invalidated by superseded beliefs", """
+            MATCH (d:Decision {status:'stale'})-[:BASED_ON]->(o:Fact)
+            WHERE o.status IN ['superseded','forgotten']
+            OPTIONAL MATCH (d)-[:INVALIDATED_BY]->(n:Fact)
+            RETURN d, collect(DISTINCT o), collect(DISTINCT n)
+            ORDER BY d.stale_since DESC
+        """)
+        out = []
+        for d, olds, news in rows:
+            dp = props(d)
+            out.append({
+                "decision_id": dp["id"], "decision": dp["text"], "reason": dp.get("reason"),
+                "decided_at": dp["created_at"], "stale_since": dp.get("stale_since"),
+                "was_based_on": [f"{props(o)['subject']} {props(o)['predicate']} {props(o)['object']}" for o in olds],
+                "now_believed": [f"{props(n)['subject']} {props(n)['predicate']} {props(n)['object']}" for n in news],
+            })
+        return {"stale": out, "ask_user": "These decisions rest on beliefs that changed. Revisit them?" if out else None,
+                "trace": trace.steps}
+
+    def decisions(self) -> dict:
+        rows = self.g.query("""
+            MATCH (d:Decision) OPTIONAL MATCH (d)-[:BASED_ON]->(f:Fact)
+            RETURN d, collect(f.subject + ' ' + f.predicate + ' ' + f.object) ORDER BY d.created_at DESC
+        """).result_set
+        return {"decisions": [{**{k: props(d).get(k) for k in ("id", "text", "reason", "status", "created_at", "stale_since")},
+                               "based_on": b} for d, b in rows]}
+
+    def resolve_decision(self, decision_id: str, action: str) -> dict:
+        """After asking the user: reaffirm (still valid), revise (will be redone), drop (no longer relevant)."""
+        status = {"reaffirm": "reaffirmed", "revise": "revised", "drop": "dropped"}.get(action)
+        if not status:
+            raise ValueError("action must be reaffirm|revise|drop")
+        trace = Trace()
+        self._q(trace, f"decision -> {status}", "MATCH (d:Decision {id:$id}) SET d.status=$s",
+                {"id": decision_id, "s": status})
+        return {"status": status, "decision_id": decision_id, "trace": trace.steps}
 
     def resolve(self, fact_id: str, keep: str = "new") -> dict:
         """Resolve a pending contradiction: keep 'new', 'old', or 'both'."""
@@ -272,6 +347,10 @@ class Memory:
         self._unlink(trace, fact_id)
         self._q(trace, "user-requested forget", """
             MATCH (f:Fact {id:$id}) SET f.status='forgotten', f.valid_to=$t
+        """, {"id": fact_id, "t": now_ms()})
+        self._q(trace, "flag decisions that depended on it as STALE", """
+            MATCH (d:Decision)-[:BASED_ON]->(:Fact {id:$id}) WHERE d.status IN ['active','reaffirmed']
+            SET d.status='stale', d.stale_since=$t
         """, {"id": fact_id, "t": now_ms()})
         return {"status": "forgotten", "fact_id": fact_id, "trace": trace.steps}
 
